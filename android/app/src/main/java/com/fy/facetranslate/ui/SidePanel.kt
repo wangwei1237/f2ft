@@ -20,9 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,9 +32,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fy.facetranslate.R
 import com.fy.facetranslate.data.Language
 import com.fy.facetranslate.session.Phase
 import com.fy.facetranslate.session.Record
@@ -61,9 +64,18 @@ fun SidePanel(lang: Language, isGuest: Boolean, ui: UiState, actions: SideAction
     val current = phase.side == lang
     val last = ui.records.lastOrNull()
     val capturing = current && (phase is Phase.Listening || phase is Phase.Recording)
+    // Playback (including replay) is announced on both halves so the listener knows to listen.
+    val playing = phase is Phase.Playing
+    val cue = when {
+        capturing && ui.connecting && phase is Phase.Listening -> Cue.CONNECTING
+        capturing -> Cue.LISTENING
+        playing -> Cue.PLAYING
+        else -> Cue.NONE
+    }
 
     val status = when {
-        !current -> if (phase is Phase.Playing && !phase.replay && phase.side != lang) lang.playing else lang.label
+        playing -> lang.playing
+        !current -> lang.label
         phase is Phase.Listening -> if (ui.connecting) lang.connecting else lang.yourTurn
         phase is Phase.Recording -> lang.listening
         phase is Phase.Translating -> lang.translating
@@ -92,13 +104,7 @@ fun SidePanel(lang: Language, isGuest: Boolean, ui: UiState, actions: SideAction
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (capturing) {
-                ActivityDot()
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(status, color = Palette.Muted, fontSize = 14.sp, fontWeight = if (current) FontWeight.SemiBold else null)
-        }
+        StatusLine(status, cue, current)
         ui.notice?.takeIf { it.first == lang }?.let { Text(it.second, color = Palette.Warn, fontSize = 15.sp) }
 
         Box(
@@ -142,11 +148,36 @@ private fun HoldButton(lang: Language, recording: Boolean, actions: SideActions)
     }
 }
 
+private enum class Cue { NONE, CONNECTING, LISTENING, PLAYING }
+
+/**
+ * Status line above the subtitle. Connecting uses a warning color and a spinner so it is not
+ * mistaken for "speak now"; listening and playback pulse an icon together with the text.
+ */
 @Composable
-private fun ActivityDot() {
-    val transition = rememberInfiniteTransition(label = "mic")
-    val a by transition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "alpha")
-    Box(Modifier.size(12.dp).alpha(a).background(Palette.Primary, CircleShape))
+private fun StatusLine(text: String, cue: Cue, current: Boolean) {
+    when (cue) {
+        Cue.CONNECTING -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(18.dp), color = Palette.Warn, strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(text, color = Palette.Warn, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Cue.LISTENING, Cue.PLAYING -> {
+            val transition = rememberInfiniteTransition(label = "cue")
+            val a by transition.animateFloat(1f, 0.35f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "alpha")
+            Row(Modifier.alpha(a), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painterResource(if (cue == Cue.LISTENING) R.drawable.ic_mic else R.drawable.ic_volume),
+                    contentDescription = null,
+                    tint = Palette.Primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(text, color = Palette.Primary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Cue.NONE -> Text(text, color = Palette.Muted, fontSize = 14.sp, fontWeight = if (current) FontWeight.SemiBold else null)
+    }
 }
 
 fun Modifier.flipped(enabled: Boolean) = if (enabled) rotate(180f) else this
