@@ -33,3 +33,10 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# macOS
+.DS_Store
+
+# Local device/debug helper scripts
+.devtools/*
+!.devtools/make_icons.py
