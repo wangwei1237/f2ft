@@ -2,12 +2,23 @@
 
 Guidance for coding agents working in this repository.
 
+## Development process (mandatory)
+
+Every development request (new feature, change, or bug fix) must follow [`docs/development-process.md`](docs/development-process.md). In short:
+
+1. Write the request up as a requirements document in `requirements/`, named `YYYYMMDD-NN-short-name.md`, before touching code.
+2. Get the user's explicit confirmation before starting development. Every revision of the document needs a new confirmation.
+3. After development, test every acceptance criterion and deliver a test report with screenshot evidence for each test case.
+
+Questions, code explanations, and read-only investigation do not need this process.
+
 ## Project
 
 f2ft is a face-to-face voice translation Android app for short travel conversations between a Mandarin speaker and an English speaker sharing one phone. Speech is translated in real time by the Google Gemini Live API over a full-duplex WebSocket. Product requirements, the interaction prototype and the demo video are in `requirements/` (`产品需求.md` is the source of truth for behavior).
 
 ## Layout
-
+- `requirements/` docs and reference materials (product spec, interaction prototype, demo), dated requirement documents, and their test reports.
+- `docs/development-process.md` mandatory development workflow for agents.
 - `android/` Gradle project, single module `:app`, package `com.fy.facetranslate`.
   - `live/GeminiLiveClient.kt` Live API protocol: setup message, audio/text input, server message parsing.
   - `session/ConversationViewModel.kt` turn-taking state machine; all state changes run on the main thread.
@@ -15,7 +26,7 @@ f2ft is a face-to-face voice translation Android app for short travel conversati
   - `audio/` 16 kHz PCM mic capture and 24 kHz PCM streaming playback.
   - `data/Language.kt` per-language codes and UI strings; `data/SettingsStore.kt` settings and Keystore-encrypted API key.
   - `ui/` Jetpack Compose screens (home, session, settings).
-- `.devtools/make_icons.py` regenerates launcher icons from `requirements/0002_01_1.png` (needs Pillow). Other files in `.devtools/` are local and git-ignored.
+- `.devtools/make_icons.py` regenerates launcher icons from `requirements/icon.png` (needs Pillow). Other files in `.devtools/` are local and git-ignored.
 
 ## Build and run
 
@@ -29,7 +40,7 @@ JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home ./gradlew :
 
 - `android/local.properties` holds `sdk.dir` and is not committed.
 - Gradle and dependency downloads need network access.
-- There are no unit tests yet. Verify changes by building and, when a device is connected (`adb devices`), installing and exercising the affected flow. If `adb devices` is empty, restarting the adb server (`adb kill-server && adb start-server`) has fixed it before. State plainly when something could not be verified on a device.
+- There are no unit tests yet. Verify changes by building and, when a device is connected (`adb devices`), installing and exercising the affected flow; capture screenshots as evidence for the test report (see `docs/development-process.md`). If `adb devices` is empty, restarting the adb server (`adb kill-server && adb start-server`) has fixed it before. State plainly when something could not be verified on a device.
 
 ## Gemini Live API notes
 

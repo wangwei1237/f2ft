@@ -80,7 +80,7 @@ android/app/src/main/java/com/fy/facetranslate/
 
 ## 应用图标
 
-图标由 `requirements/0002_01_1.png` 生成。换图后运行以下命令重新生成各分辨率资源（需要 Pillow）：
+图标由 `requirements/icon.png` 生成。换图后运行以下命令重新生成各分辨率资源（需要 Pillow）：
 
 ```bash
 python3 .devtools/make_icons.py
