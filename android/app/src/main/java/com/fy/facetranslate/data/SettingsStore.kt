@@ -13,12 +13,20 @@ import javax.crypto.spec.GCMParameterSpec
 data class AppSettings(
     val apiKey: String = "",
     val model: String = DEFAULT_MODEL,
+    /** Live subtitle (speech-to-text) model; empty means live subtitles are off. */
+    val transcribeModel: String = DEFAULT_TRANSCRIBE_MODEL,
     val voice: String = DEFAULT_VOICE,
     val silenceMs: Int = DEFAULT_SILENCE_MS,
     val ownerLanguage: Language = Language.ZH,
 ) {
+    val subtitlesEnabled: Boolean get() = transcribeModel.isNotBlank()
+
+    /** The translate model ignores voice selection and text input, so voices cannot be previewed with it. */
+    val canPreviewVoice: Boolean get() = !model.contains("live-translate")
+
     companion object {
         const val DEFAULT_MODEL = "gemini-3.8-live"
+        const val DEFAULT_TRANSCRIBE_MODEL = "gemini-3.5-transcribe-live"
         const val DEFAULT_VOICE = "Kore"
         const val DEFAULT_SILENCE_MS = 800
 
@@ -29,6 +37,7 @@ data class AppSettings(
             "gemini-3.5-live-translate-preview",
             "gemini-2.5-flash-native-audio-preview-12-2025",
         )
+        val PRESET_TRANSCRIBE_MODELS = listOf(DEFAULT_TRANSCRIBE_MODEL)
         val PRESET_VOICES = listOf("Kore", "Puck", "Aoede", "Charon", "Zephyr")
     }
 }
@@ -43,6 +52,8 @@ class SettingsStore(context: Context) {
     fun load(): AppSettings = AppSettings(
         apiKey = prefs.getString(KEY_API, null)?.let { decrypt(it) }.orEmpty(),
         model = prefs.getString(KEY_MODEL, null) ?: AppSettings.DEFAULT_MODEL,
+        // Missing key (older installs) means subtitles on; an empty string means the user turned them off.
+        transcribeModel = prefs.getString(KEY_TRANSCRIBE, null) ?: AppSettings.DEFAULT_TRANSCRIBE_MODEL,
         voice = prefs.getString(KEY_VOICE, null) ?: AppSettings.DEFAULT_VOICE,
         silenceMs = prefs.getInt(KEY_SILENCE, AppSettings.DEFAULT_SILENCE_MS),
         ownerLanguage = runCatching { Language.valueOf(prefs.getString(KEY_OWNER, "ZH")!!) }
@@ -53,6 +64,7 @@ class SettingsStore(context: Context) {
         prefs.edit()
             .putString(KEY_API, if (settings.apiKey.isBlank()) null else encrypt(settings.apiKey.trim()))
             .putString(KEY_MODEL, settings.model.trim().ifEmpty { AppSettings.DEFAULT_MODEL })
+            .putString(KEY_TRANSCRIBE, settings.transcribeModel.trim())
             .putString(KEY_VOICE, settings.voice.trim().ifEmpty { AppSettings.DEFAULT_VOICE })
             .putInt(KEY_SILENCE, settings.silenceMs.coerceIn(300, 3000))
             .putString(KEY_OWNER, settings.ownerLanguage.name)
@@ -92,6 +104,7 @@ class SettingsStore(context: Context) {
         const val IV_LEN = 12
         const val KEY_API = "api_key_enc"
         const val KEY_MODEL = "model"
+        const val KEY_TRANSCRIBE = "transcribe_model"
         const val KEY_VOICE = "voice"
         const val KEY_SILENCE = "silence_ms"
         const val KEY_OWNER = "owner_language"

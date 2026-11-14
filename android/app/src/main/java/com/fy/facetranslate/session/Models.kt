@@ -43,6 +43,8 @@ data class UiState(
     val records: List<Record> = emptyList(),
     /** Live transcript of the utterance currently being spoken. */
     val partialOriginal: String = "",
+    /** true while [partialOriginal] comes from the live subtitle model and is not final yet. */
+    val partialIsInterim: Boolean = false,
     val holdMode: Boolean = false,
     val faceToFace: Boolean = false,
     val micAllowed: Boolean = false,

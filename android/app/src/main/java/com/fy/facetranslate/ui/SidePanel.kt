@@ -111,7 +111,10 @@ fun SidePanel(lang: Language, isGuest: Boolean, ui: UiState, actions: SideAction
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
                 .clickable(enabled = last != null && !showPartial) { last?.let { actions.onZoom(it.id) } },
         ) {
-            Text(mainText, fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                mainText, fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.SemiBold,
+                color = if (showPartial && ui.partialIsInterim) Palette.Interim else Palette.Ink,
+            )
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

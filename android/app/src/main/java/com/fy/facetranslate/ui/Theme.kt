@@ -18,6 +18,8 @@ object Palette {
     val Background = Color(0xFFFCFCF6)
     val Ink = Color(0xFF123E37)
     val Muted = Color(0xFF45685D)
+    /** Live subtitle text that is still being recognized. */
+    val Interim = Color(0xFF8C9C96)
     val Primary = Color(0xFF146552)
     val OwnPanel = Color(0xFFE0EFE6)
     val GuestPanel = Color(0xFFE4EDF1)

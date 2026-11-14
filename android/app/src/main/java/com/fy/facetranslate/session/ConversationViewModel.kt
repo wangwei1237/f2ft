@@ -45,6 +45,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
     private val clients = mutableMapOf<Language, GeminiLiveClient>()
+    private val subtitles = mutableMapOf<Language, GeminiLiveClient>()
     private val player = PcmPlayer()
     private val mic = MicRecorder(::onMicChunk)
     private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -68,6 +69,13 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         var sentInput = false
         var playerGen = 0
 
+        /** Live subtitle session for this turn's side, or null when subtitles are off or unavailable. */
+        var subtitle: GeminiLiveClient? = null
+        var subtitleSent = false
+        /** Subtitle text finalized so far in this turn, plus the hypothesis for the utterance in progress. */
+        val subtitleFinal = StringBuilder()
+        var subtitleInterim = ""
+
         // Hold-to-talk: audio is buffered until the press lasts long enough to count as speech.
         val lock = Any()
         var pressAt = 0L
@@ -87,6 +95,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
     }
 
     fun saveSettings(new: AppSettings) {
+        stopPreview()
         store.save(new)
         settings = store.load()
         closeClients()
@@ -94,18 +103,38 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
     }
 
     fun closeSettings() {
+        stopPreview()
         ui = ui.copy(screen = Screen.HOME)
     }
 
-    /** Opens a throwaway session with [candidate] and reports null on success or the error text. */
-    fun testConnection(candidate: AppSettings, onResult: (String?) -> Unit) {
-        val config = LiveConfig(
+    /**
+     * Opens throwaway sessions for the translation model and, if enabled, the subtitle model.
+     * Reports one (label, error or null) pair per model.
+     */
+    fun testConnection(candidate: AppSettings, onResult: (List<Pair<String, String?>>) -> Unit) {
+        val base = LiveConfig(
             apiKey = candidate.apiKey.trim(), model = candidate.model.trim(), voice = candidate.voice.trim(),
             source = Language.ZH, target = Language.EN, manualActivity = false, silenceMs = candidate.silenceMs,
         )
+        val probes = mutableListOf("翻译播报" to base)
+        if (candidate.subtitlesEnabled) {
+            probes += "实时字幕" to base.copy(model = candidate.transcribeModel.trim(), transcribeOnly = true)
+        }
+        val results = arrayOfNulls<Pair<String, String?>>(probes.size)
+        var remaining = probes.size
+        probes.forEachIndexed { i, (label, config) ->
+            probe(config) { error ->
+                results[i] = label to error
+                if (--remaining == 0) onResult(results.filterNotNull())
+            }
+        }
+    }
+
+    /** Connects with [config] and reports null once setup completes, or the error text. Result on main thread. */
+    private fun probe(config: LiveConfig, onResult: (String?) -> Unit) {
         var done = false
         val finish = { error: String? -> main.post { if (!done) { done = true; onResult(error) } } }
-        val probe = GeminiLiveClient(http, config, object : GeminiLiveClient.Listener {
+        val client = GeminiLiveClient(http, config, object : GeminiLiveClient.Listener {
             override fun onReady(client: GeminiLiveClient) { finish(null); client.close() }
             override fun onInputTranscript(client: GeminiLiveClient, text: String) = Unit
             override fun onOutputTranscript(client: GeminiLiveClient, text: String) = Unit
@@ -113,8 +142,72 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
             override fun onTurnComplete(client: GeminiLiveClient) = Unit
             override fun onClosed(client: GeminiLiveClient, error: String?) { finish(error ?: "connection closed") }
         })
-        probe.connect()
-        main.postDelayed({ if (!done) { probe.close(); finish("timeout") } }, 10_000)
+        client.connect()
+        main.postDelayed({ if (!done) { client.close(); finish("timeout") } }, 10_000)
+    }
+
+    // ---------------------------------------------------------------- voice preview
+
+    private var previewClient: GeminiLiveClient? = null
+
+    /**
+     * Speaks a fixed sample in [candidate]'s voice by translating a Chinese sentence into English.
+     * [onState] receives true when playback starts and false (with an error or null) when it ends.
+     */
+    fun previewVoice(candidate: AppSettings, onState: (playing: Boolean, error: String?) -> Unit) {
+        stopPreview()
+        val config = LiveConfig(
+            apiKey = candidate.apiKey.trim(), model = candidate.model.trim(), voice = candidate.voice.trim(),
+            source = Language.ZH, target = Language.EN, manualActivity = false, silenceMs = candidate.silenceMs,
+        )
+        var gen = 0
+        var ended = false
+        fun end(client: GeminiLiveClient, error: String?) {
+            if (previewClient !== client || ended) return
+            ended = true
+            previewClient = null
+            client.close()
+            abandonFocus()
+            onState(false, error)
+        }
+        val client = GeminiLiveClient(http, config, object : GeminiLiveClient.Listener {
+            override fun onReady(client: GeminiLiveClient) {
+                main.post { if (previewClient === client) client.sendText(PREVIEW_SAMPLE) }
+            }
+            override fun onInputTranscript(client: GeminiLiveClient, text: String) = Unit
+            override fun onOutputTranscript(client: GeminiLiveClient, text: String) = Unit
+            override fun onAudio(client: GeminiLiveClient, pcm: ByteArray) {
+                main.post {
+                    if (previewClient !== client) return@post
+                    if (gen == 0) {
+                        requestFocus()
+                        gen = player.begin()
+                    }
+                    player.write(gen, pcm)
+                }
+            }
+            override fun onTurnComplete(client: GeminiLiveClient) {
+                main.post {
+                    if (previewClient !== client) return@post
+                    if (gen == 0) end(client, "no audio") else player.finish(gen) { main.post { end(client, null) } }
+                }
+            }
+            override fun onClosed(client: GeminiLiveClient, error: String?) {
+                main.post { end(client, error ?: "connection closed") }
+            }
+        })
+        previewClient = client
+        onState(true, null)
+        client.connect()
+        main.postDelayed({ if (previewClient === client && gen == 0) end(client, "timeout") }, 15_000)
+    }
+
+    fun stopPreview() {
+        val client = previewClient ?: return
+        previewClient = null
+        client.close()
+        player.stop()
+        abandonFocus()
     }
 
     fun swapLanguages() {
@@ -143,6 +236,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         )
         ensureClient(first)
         ensureClient(first.other())
+        ensureSubtitle(first)
+        ensureSubtitle(first.other())
         beginTurn(first)
     }
 
@@ -179,9 +274,12 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         if (!ui.micAllowed) return
         cancelInFlight()
         val client = ensureClient(side)
-        val turn = Turn(Kind.SPEECH, side, client, nextRecordId++).apply { pressAt = SystemClock.elapsedRealtime() }
+        val turn = Turn(Kind.SPEECH, side, client, nextRecordId++).apply {
+            pressAt = SystemClock.elapsedRealtime()
+            subtitle = ensureSubtitle(side)
+        }
         active = turn
-        ui = ui.copy(phase = Phase.Recording(side), partialOriginal = "", notice = null)
+        ui = ui.copy(phase = Phase.Recording(side), partialOriginal = "", partialIsInterim = false, notice = null)
         if (!mic.start()) micFailed(side)
     }
 
@@ -191,7 +289,10 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         mic.stop()
         val started = synchronized(turn.lock) {
             turn.released = true
-            if (turn.activityStarted) turn.client?.sendActivityEnd()
+            if (turn.activityStarted) {
+                turn.client?.sendActivityEnd()
+                turn.subtitle?.sendActivityEnd()
+            }
             turn.activityStarted
         }
         if (!started) {
@@ -309,8 +410,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
             return
         }
         val client = ensureClient(side)
-        active = Turn(Kind.SPEECH, side, client, nextRecordId++)
-        ui = ui.copy(phase = Phase.Listening(side))
+        active = Turn(Kind.SPEECH, side, client, nextRecordId++).apply { subtitle = ensureSubtitle(side) }
+        ui = ui.copy(phase = Phase.Listening(side), partialIsInterim = false)
         if (!mic.start()) micFailed(side)
     }
 
@@ -331,6 +432,11 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         player.stop()
         abandonFocus()
         if (turn.kind == Kind.REPLAY) return
+        // A subtitle session that heard part of this turn could leak its late hypothesis into the next one.
+        turn.subtitle?.takeIf { turn.subtitleSent && subtitles[turn.side] === it }?.let {
+            subtitles.remove(turn.side)
+            it.close()
+        }
         if (!turn.completed) {
             if (turn.kind == Kind.TEXT) {
                 updateRecord(turn.recordId) { it.copy(status = RecordStatus.FAILED) }
@@ -367,6 +473,73 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
     private fun closeClients() {
         clients.values.forEach { it.close() }
         clients.clear()
+        subtitles.values.forEach { it.close() }
+        subtitles.clear()
+    }
+
+    /** Returns the live subtitle session for [source], opening it if needed; null when subtitles are off. */
+    private fun ensureSubtitle(source: Language): GeminiLiveClient? {
+        if (!settings.subtitlesEnabled) return null
+        subtitles[source]?.takeIf { it.state != GeminiLiveClient.State.CLOSED }?.let { return it }
+        val config = LiveConfig(
+            apiKey = settings.apiKey,
+            model = settings.transcribeModel,
+            voice = settings.voice,
+            source = source,
+            target = source.other(),
+            manualActivity = ui.holdMode,
+            silenceMs = settings.silenceMs,
+            transcribeOnly = true,
+        )
+        val client = GeminiLiveClient(http, config, subtitleListener)
+        subtitles[source] = client
+        client.connect()
+        return client
+    }
+
+    /**
+     * Subtitle results only refresh the on-screen original of the active turn, and only until the
+     * translation model delivers its own transcript or output starts. Errors are never shown:
+     * the conversation simply falls back to end-of-sentence transcripts.
+     */
+    private val subtitleListener = object : GeminiLiveClient.Listener {
+        private fun onTurnOf(client: GeminiLiveClient, block: (Turn) -> Unit) {
+            main.post {
+                val turn = active ?: return@post
+                if (turn.subtitle === client && subtitles[turn.side] === client && turn.subtitleSent &&
+                    !turn.outputStarted && turn.original.isEmpty()
+                ) {
+                    block(turn)
+                }
+            }
+        }
+
+        private fun show(turn: Turn) {
+            val text = (turn.subtitleFinal.toString() + turn.subtitleInterim).trim()
+            if (text.isNotEmpty()) ui = ui.copy(partialOriginal = text, partialIsInterim = true, notice = null)
+        }
+
+        override fun onReady(client: GeminiLiveClient) = Unit
+
+        override fun onInterimTranscript(client: GeminiLiveClient, text: String) = onTurnOf(client) { turn ->
+            turn.subtitleInterim = text
+            show(turn)
+        }
+
+        override fun onInputTranscript(client: GeminiLiveClient, text: String) = onTurnOf(client) { turn ->
+            turn.subtitleFinal.append(text)
+            turn.subtitleInterim = ""
+            show(turn)
+        }
+
+        override fun onOutputTranscript(client: GeminiLiveClient, text: String) = Unit
+        override fun onAudio(client: GeminiLiveClient, pcm: ByteArray) = Unit
+        override fun onTurnComplete(client: GeminiLiveClient) = Unit
+
+        override fun onClosed(client: GeminiLiveClient, error: String?) {
+            // Reconnected lazily when the next turn on this side begins.
+            main.post { if (subtitles[client.config.source] === client) subtitles.remove(client.config.source) }
+        }
     }
 
     /** Microphone thread. */
@@ -374,15 +547,22 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         val turn = active ?: return
         val client = turn.client ?: return
         if (turn.outputStarted) return
+        // The subtitle session gets exactly the same audio as the translation session.
+        val subtitle = turn.subtitle
         if (!client.config.manualActivity) {
             turn.sentInput = true
             client.sendAudio(pcm)
+            if (subtitle != null) {
+                turn.subtitleSent = true
+                subtitle.sendAudio(pcm)
+            }
             return
         }
         synchronized(turn.lock) {
             if (turn.released) return
             if (turn.activityStarted) {
                 client.sendAudio(pcm)
+                subtitle?.sendAudio(pcm)
                 return
             }
             turn.preroll.add(pcm)
@@ -391,6 +571,11 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
                 turn.sentInput = true
                 client.sendActivityStart()
                 turn.preroll.forEach(client::sendAudio)
+                if (subtitle != null) {
+                    turn.subtitleSent = true
+                    subtitle.sendActivityStart()
+                    turn.preroll.forEach(subtitle::sendAudio)
+                }
                 turn.preroll.clear()
             }
         }
@@ -418,7 +603,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         if (turn.outputStarted) {
             updateRecord(turn.recordId) { it.copy(original = original) }
         } else {
-            ui = ui.copy(partialOriginal = original, notice = null)
+            // The translation model's transcript is authoritative and replaces the live subtitle.
+            ui = ui.copy(partialOriginal = original, partialIsInterim = false, notice = null)
             // A pause in the incoming transcript means the sentence was submitted.
             main.removeCallbacks(translatingTimer)
             if (ui.phase is Phase.Listening) main.postDelayed(translatingTimer, TRANSLATING_HINT_MS)
@@ -446,9 +632,10 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         if (turn.outputStarted) return
         turn.outputStarted = true
         mic.stop()
+        if (turn.subtitleSent && turn.subtitle?.config?.manualActivity == false) turn.subtitle?.sendAudioStreamEnd()
         main.removeCallbacks(translatingTimer)
         upsertRecord(Record(turn.recordId, turn.side, turn.original.toString().trim()))
-        ui = ui.copy(phase = Phase.Playing(turn.side, replay = false), partialOriginal = "", notice = null)
+        ui = ui.copy(phase = Phase.Playing(turn.side, replay = false), partialOriginal = "", partialIsInterim = false, notice = null)
     }
 
     override fun onTurnComplete(client: GeminiLiveClient) = onTurnOf(client) { turn ->
@@ -465,7 +652,9 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
             val side = turn.side
             if (!client.config.manualActivity && mic.isRunning) {
                 turn.original.clear()
-                ui = ui.copy(phase = Phase.Listening(side), partialOriginal = "", notice = side to side.retry)
+                turn.subtitleFinal.clear()
+                turn.subtitleInterim = ""
+                ui = ui.copy(phase = Phase.Listening(side), partialOriginal = "", partialIsInterim = false, notice = side to side.retry)
             } else {
                 active = null
                 mic.stop()
@@ -574,5 +763,6 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
     private companion object {
         const val MIN_PRESS_MS = 300L
         const val TRANSLATING_HINT_MS = 700L
+        const val PREVIEW_SAMPLE = "你好，我会帮你把对话翻译成英文。"
     }
 }

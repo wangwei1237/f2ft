@@ -40,3 +40,7 @@ google-services.json
 # Local device/debug helper scripts
 .devtools/*
 !.devtools/make_icons.py
+
+# test
+requirements/20261113-02-live-subtitles
+

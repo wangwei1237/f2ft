@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -18,6 +20,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,22 +41,44 @@ fun SettingsScreen(
     initial: AppSettings,
     onSave: (AppSettings) -> Unit,
     onCancel: () -> Unit,
-    onTest: (AppSettings, (String?) -> Unit) -> Unit,
+    onTest: (AppSettings, (List<Pair<String, String?>>) -> Unit) -> Unit,
+    onPreview: (AppSettings, (playing: Boolean, error: String?) -> Unit) -> Unit,
+    onStopPreview: () -> Unit,
 ) {
     var apiKey by remember { mutableStateOf(initial.apiKey) }
     var showKey by remember { mutableStateOf(false) }
     var model by remember { mutableStateOf(initial.model) }
+    var transcribeModel by remember { mutableStateOf(initial.transcribeModel) }
     var voice by remember { mutableStateOf(initial.voice) }
     var silence by remember { mutableStateOf(initial.silenceMs.toString()) }
-    var testResult by remember { mutableStateOf<String?>(null) }
+    var testResult by remember { mutableStateOf<List<Pair<String, String?>>?>(null) }
     var testing by remember { mutableStateOf(false) }
+    var previewing by remember { mutableStateOf(false) }
+    var previewError by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) { onDispose(onStopPreview) }
 
     fun current() = initial.copy(
         apiKey = apiKey.trim(),
         model = model.trim(),
+        transcribeModel = transcribeModel.trim(),
         voice = voice.trim(),
         silenceMs = silence.toIntOrNull()?.coerceIn(300, 3000) ?: AppSettings.DEFAULT_SILENCE_MS,
     )
+
+    fun preview() {
+        val candidate = current()
+        previewError = when {
+            candidate.apiKey.isBlank() -> "请先填写 API Key"
+            !candidate.canPreviewVoice -> "当前翻译播报模型不支持选择音色，无法试听"
+            else -> null
+        }
+        if (previewError != null) return
+        onPreview(candidate) { playing, error ->
+            previewing = playing
+            previewError = error?.let { "试听失败：$it" }
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().background(Palette.Background).safeDrawingPadding().imePadding()
@@ -78,7 +103,8 @@ fun SettingsScreen(
         SecondaryButton(if (showKey) "隐藏" else "显示", { showKey = !showKey })
         Text("Key 使用 Android Keystore 加密后仅保存在本机，不会备份。", color = Palette.Muted, fontSize = 12.sp)
 
-        Text("Live API 模型", fontWeight = FontWeight.SemiBold)
+        Text("翻译播报模型", fontWeight = FontWeight.SemiBold)
+        Text("负责识别你说的话、翻译成对方的语言并朗读译文。", color = Palette.Muted, fontSize = 12.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppSettings.PRESET_MODELS.forEach { id ->
                 FilterChip(selected = model == id, onClick = { model = id; testResult = null }, label = { Text(id) })
@@ -89,7 +115,7 @@ fun SettingsScreen(
             onValueChange = { model = it; testResult = null },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            label = { Text("模型 ID（可自定义）") },
+            label = { Text("翻译播报模型 ID（可自定义）") },
         )
         Text(
             "默认 gemini-3.8-live：全双工语音到语音、低延迟，支持语音和文字输入。" +
@@ -97,12 +123,41 @@ fun SettingsScreen(
             color = Palette.Muted, fontSize = 12.sp,
         )
 
+        Text("实时字幕模型", fontWeight = FontWeight.SemiBold)
+        Text("说话时实时显示识别出的原文，不参与翻译。", color = Palette.Muted, fontSize = 12.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSettings.PRESET_TRANSCRIBE_MODELS.forEach { id ->
+                FilterChip(selected = transcribeModel == id, onClick = { transcribeModel = id; testResult = null },
+                    label = { Text(id) })
+            }
+            FilterChip(selected = transcribeModel.isBlank(), onClick = { transcribeModel = ""; testResult = null },
+                label = { Text("关闭") })
+        }
+        OutlinedTextField(
+            value = transcribeModel,
+            onValueChange = { transcribeModel = it; testResult = null },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text("实时字幕模型 ID（留空即关闭）") },
+        )
+        Text("开启后，说话的音频会同时发送给两个模型，音频费用相应增加。", color = Palette.Muted, fontSize = 12.sp)
+
         Text("播报音色", fontWeight = FontWeight.SemiBold)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppSettings.PRESET_VOICES.forEach { v ->
-                FilterChip(selected = voice == v, onClick = { voice = v }, label = { Text(v) })
+                FilterChip(selected = voice == v, onClick = { voice = v; preview() }, label = { Text(v) })
             }
         }
+        val canPreview = current().canPreviewVoice
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SecondaryButton(if (previewing) "正在试听…" else "试听", { preview() }, enabled = canPreview)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                if (canPreview) "选择音色后会自动试听一句英文示例。" else "当前翻译播报模型不支持选择音色，无法试听。",
+                color = Palette.Muted, fontSize = 12.sp,
+            )
+        }
+        previewError?.takeIf { canPreview }?.let { Text(it, color = Palette.Error, fontSize = 13.sp) }
 
         Text("句尾停顿阈值（毫秒）", fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
@@ -120,16 +175,19 @@ fun SettingsScreen(
             {
                 testing = true
                 testResult = null
-                onTest(current()) { error ->
+                onTest(current()) { results ->
                     testing = false
-                    testResult = error?.let { "连接失败：$it" } ?: "连接成功"
+                    testResult = results
                 }
             },
             Modifier.fillMaxWidth(),
             enabled = !testing && apiKey.isNotBlank() && model.isNotBlank(),
         )
-        testResult?.let {
-            Text(it, color = if (it == "连接成功") Palette.Primary else Palette.Error)
+        testResult?.forEach { (label, error) ->
+            Text(
+                "$label：" + (error?.let { "连接失败：$it" } ?: "连接成功"),
+                color = if (error == null) Palette.Primary else Palette.Error,
+            )
         }
         PrimaryButton("保存", { onSave(current()) }, Modifier.fillMaxWidth())
     }

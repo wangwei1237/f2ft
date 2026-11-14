@@ -61,7 +61,10 @@ class MainActivity : ComponentActivity() {
                     )
                     Screen.SETTINGS -> {
                         BackHandler(onBack = vm::closeSettings)
-                        SettingsScreen(vm.settings, vm::saveSettings, vm::closeSettings, vm::testConnection)
+                        SettingsScreen(
+                            vm.settings, vm::saveSettings, vm::closeSettings, vm::testConnection,
+                            vm::previewVoice, vm::stopPreview,
+                        )
                     }
                     Screen.SESSION -> SessionScreen(ui, sessionActions())
                 }

@@ -20,6 +20,8 @@ data class LiveConfig(
     /** true for hold-to-talk: the app sends activityStart/activityEnd instead of server-side VAD. */
     val manualActivity: Boolean,
     val silenceMs: Int,
+    /** true for a text-only live subtitle session (e.g. gemini-3.5-transcribe-live) that never translates. */
+    val transcribeOnly: Boolean = false,
 ) {
     val isTranslateModel: Boolean get() = model.contains("live-translate")
 }
@@ -39,6 +41,8 @@ class GeminiLiveClient(
     interface Listener {
         fun onReady(client: GeminiLiveClient)
         fun onInputTranscript(client: GeminiLiveClient, text: String)
+        /** Partial hypothesis of the utterance still being spoken (transcribe models only). */
+        fun onInterimTranscript(client: GeminiLiveClient, text: String) = Unit
         fun onOutputTranscript(client: GeminiLiveClient, text: String)
         fun onAudio(client: GeminiLiveClient, pcm: ByteArray)
         fun onTurnComplete(client: GeminiLiveClient)
@@ -96,6 +100,9 @@ class GeminiLiveClient(
 
     fun sendActivityEnd() = send(JSONObject().put("realtimeInput", JSONObject().put("activityEnd", JSONObject())))
 
+    /** Tells a transcribe session that the microphone stopped, so it finalizes the current utterance. */
+    fun sendAudioStreamEnd() = send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)))
+
     /** Sends typed (or retried) text through the same translation flow as speech. */
     fun sendText(text: String) {
         if (config.model.startsWith("gemini-2")) {
@@ -144,6 +151,8 @@ class GeminiLiveClient(
             return
         }
         val content = msg.optJSONObject("serverContent") ?: return
+        content.optJSONObject("interimInputTranscription")?.optString("text")?.takeIf { it.isNotEmpty() }
+            ?.let { listener.onInterimTranscript(this, it) }
         content.optJSONObject("inputTranscription")?.optString("text")?.takeIf { it.isNotEmpty() }
             ?.let { listener.onInputTranscript(this, it) }
         content.optJSONObject("outputTranscription")?.optString("text")?.takeIf { it.isNotEmpty() }
@@ -159,6 +168,7 @@ class GeminiLiveClient(
     }
 
     private fun setupMessage(): JSONObject {
+        if (config.transcribeOnly) return transcribeSetup()
         val generation = JSONObject()
             .put("responseModalities", JSONArray().put("AUDIO"))
             .put("speechConfig", JSONObject().put("voiceConfig",
@@ -201,6 +211,18 @@ class GeminiLiveClient(
             setup.put("contextWindowCompression", JSONObject().put("slidingWindow", JSONObject()))
         }
         return JSONObject().put("setup", setup)
+    }
+
+    /** Text-only speech-to-text session used for live subtitles; it never translates or speaks. */
+    private fun transcribeSetup(): JSONObject {
+        val detection = JSONObject().put("disabled", config.manualActivity)
+        if (!config.manualActivity) detection.put("silenceDurationMs", config.silenceMs)
+        return JSONObject().put("setup", JSONObject()
+            .put("model", "models/${config.model}")
+            .put("generationConfig", JSONObject().put("responseModalities", JSONArray().put("TEXT")))
+            .put("inputAudioTranscription", JSONObject()
+                .put("languageCodes", JSONArray().put(config.source.bcp47)))
+            .put("realtimeInputConfig", JSONObject().put("automaticActivityDetection", detection)))
     }
 
     private fun interpreterPrompt(): String {
