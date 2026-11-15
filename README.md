@@ -7,6 +7,8 @@
 ## 功能
 
 - **自动轮流对话**：按当前说话一侧的语言收音，句尾停顿后自动提交翻译；译文播完后自动轮到对方。
+- **实时字幕**：说话过程中，字幕区用浅灰色实时显示识别出的原文；一句话说完后替换为最终原文。可在设置中关闭。
+- **状态提示**：连接中显示橙色"正在连接"和加载圈；轮到说话时显示闪动的麦克风图标；播放译文时两侧都显示闪动的喇叭图标。
 - **提前接话**：播报期间点对方的语言按钮，立即停止播报并切换说话方。
 - **按住说话**：嘈杂环境下切换为按住说话、松手提交。
 - **打字输入**：没有麦克风权限或不方便说话时，可以打字，走同样的翻译和播报流程。
@@ -19,14 +21,25 @@
 
 ## 模型
 
+设置页分别配置两类模型。
+
+**翻译播报模型**：识别说话内容、翻译并朗读译文。
+
 | 模型 ID | 说明 |
 |---|---|
 | `gemini-3.8-live`（默认） | 正式版，全双工语音到语音，延迟低，支持语音和文字输入 |
 | `gemini-3.1-flash-live-preview` | 预览版 Live 模型 |
-| `gemini-3.5-live-translate-preview` | 专用同传模型，只接受语音输入，打字和重试不可用；会持续翻译收到的声音，并自动判断语言，在轮流对话场景下效果不稳定 |
+| `gemini-3.5-live-translate-preview` | 专用同传模型，只接受语音输入，打字、重试和音色试听不可用；会持续翻译收到的声音，并自动判断语言，在轮流对话场景下效果不稳定 |
 | `gemini-2.5-flash-native-audio-preview-12-2025` | 上一代原生音频模型 |
 
-App 为中译英、英译中各保持一条 WebSocket 连接，当前轮到哪一方说，麦克风音频就发给对应的连接。
+**实时字幕模型**：只负责说话时实时显示原文，不参与翻译。
+
+| 模型 ID | 说明 |
+|---|---|
+| `gemini-3.5-transcribe-live`（默认） | 实时转写模型，说话过程中持续返回识别结果 |
+| 关闭 | 不显示实时字幕，一句话说完后才显示原文 |
+
+App 为中译英、英译中各保持一条翻译播报连接；开启实时字幕时，两侧各再保持一条字幕连接。轮到哪一方说，麦克风音频就同时发给该侧的翻译播报连接和字幕连接，所以开启实时字幕后音频费用相应增加。
 
 ## 配置 API Key
 
@@ -34,18 +47,14 @@ API Key 不写在代码里，安装后在 App 内配置：
 
 1. 在 [Google AI Studio](https://aistudio.google.com/) 创建 Gemini API Key。
 2. 打开 App，点首页右上角「设置」。
-3. 粘贴 API Key，选择模型和音色，可调整句尾停顿阈值（默认 800 毫秒）。
-4. 点「测试连接」，显示「连接成功」后点「保存」。
+3. 粘贴 API Key，选择翻译播报模型、实时字幕模型和播报音色，可调整句尾停顿阈值（默认 800 毫秒）。点选音色后会自动试听一句英文示例，也可以点「试听」再听一遍。
+4. 点「测试连接」，翻译播报和实时字幕会分别显示结果，都显示「连接成功」后点「保存」。
 
 Key 使用 Android Keystore 的 AES-GCM 密钥加密后保存在 App 私有存储中，并已排除系统备份。
 
 ## 构建与安装
 
-环境要求：
-
-- JDK 17
-- Android SDK（compileSdk 36）
-- 运行设备：Android 8.0（API 26）及以上，需要联网
+环境要求：JDK 17、Android SDK（compileSdk 36）；运行设备为 Android 8.0（API 26）及以上，需要联网。
 
 ```bash
 cd android
@@ -53,30 +62,11 @@ cd android
 ./gradlew :app:installDebug     # 安装到已通过 USB 调试连接的手机
 ```
 
-首次构建前，在 `android/local.properties` 中写入 SDK 路径，例如：
-
-```properties
-sdk.dir=/Users/you/Library/Android/sdk
-```
+首次构建前，在 `android/local.properties` 中写入 SDK 路径，例如 `sdk.dir=/Users/you/Library/Android/sdk`。
 
 ## 代码结构
 
-```
-android/app/src/main/java/com/fy/facetranslate/
-├── MainActivity.kt                 页面切换、麦克风权限、前后台处理
-├── audio/
-│   ├── MicRecorder.kt              16 kHz PCM 采集，开启降噪和回声消除
-│   └── PcmPlayer.kt                24 kHz PCM 流式播放
-├── data/
-│   ├── Language.kt                 中英两侧的语言代码和界面文案
-│   └── SettingsStore.kt            设置读写与 API Key 加密
-├── live/
-│   └── GeminiLiveClient.kt         Gemini Live API WebSocket 协议
-├── session/
-│   ├── ConversationViewModel.kt    轮流对话状态机
-│   └── Models.kt                   界面状态与对话记录
-└── ui/                             Compose 界面：开始页、会话页、设置页
-```
+主要模块：`live/`（Live API 协议）、`session/`（轮流对话状态机）、`audio/`（采集与播放）、`data/`（语言与设置）、`ui/`（Compose 界面）。详细的结构、运行机制和构建验证方法见 [`docs/architecture.md`](docs/architecture.md)，开发流程见 [`docs/development-process.md`](docs/development-process.md)。
 
 ## 应用图标
 
@@ -90,6 +80,8 @@ python3 .devtools/make_icons.py
 
 - 首版只支持普通话和英语，需要联网。
 - 译文的文字和声音同时流式到达，无法严格做到先显示文字再播放声音。
+- 实时字幕从开始说话到出现第一段文字约需 4–5 秒；短句的实时效果有限。
+- 接话时，新说话一侧可能短暂显示"正在连接"，实际上已在收音。
 - 端到端延迟、外放回录和嘈杂环境表现尚未做系统测试。
 
 ## License
