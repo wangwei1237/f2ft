@@ -30,7 +30,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check that the release does not exist
         run: |
@@ -39,14 +39,13 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
-      - uses: gradle/actions/setup-gradle@v4
+      # The ubuntu runner image ships the Android SDK (ANDROID_HOME); Gradle installs missing platforms.
+      - uses: gradle/actions/setup-gradle@v5
 
       - name: Decode signing key
         env:
