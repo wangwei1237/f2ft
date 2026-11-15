@@ -8,6 +8,7 @@ f2ft 是面对面语音翻译 Android App：中文使用者和英语使用者共
 
 - `requirements/`：产品需求、交互原型、演示视频、图标原图，以及按日期编号的需求文档（见 `docs/development-process.md`）。
 - `docs/`：开发流程（`development-process.md`）和本文档。
+- `.github/workflows/release.yml`：手动触发的发布工作流，见第 6 节"版本号与发布"。
 - `android/`：Gradle 工程，单模块 `:app`，包名 `com.fy.facetranslate`。
 - `.devtools/make_icons.py`：由 `requirements/icon.png` 生成启动图标（需要 Pillow）。`.devtools/` 下其他文件是本地调试脚本，已被 git 忽略。
 
@@ -83,11 +84,20 @@ JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home ./gradlew :
 - `android/local.properties` 存放 `sdk.dir`，不提交到仓库。
 - Gradle 和依赖下载需要联网。
 - 构建必须没有编译错误；新增代码不应引入编译警告。
+- APK 按 CPU 架构拆分（`splits.abi`）：每次构建在 `app/build/outputs/apk/<debug|release>/` 下输出 `app-arm64-v8a-*`、`app-armeabi-v7a-*`、`app-x86_64-*`、`app-x86-*` 和包含全部架构的 `app-universal-*`。手动安装到真机时用 `app-arm64-v8a-debug.apk` 或 `app-universal-debug.apk`。
+
+### 版本号与发布
+
+- 版本号通过 Gradle 参数传入：`-PappVersion=X.Y.Z`。`versionName` 等于该值，`versionCode = X × 10000 + Y × 100 + Z`（Y、Z 不超过 99，格式不对时构建失败）。不传时使用默认值 `1.0` / `1`。
+- release 签名从环境变量读取：`RELEASE_KEYSTORE_FILE`、`RELEASE_KEYSTORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`。没有这些变量时，release 包不签名，不能安装。
+- 正式发布只通过 GitHub Actions 工作流 `.github/workflows/release.yml`（手动触发，输入版本号）：校验版本号 → 检查标签是否已存在 → 用仓库 Secrets 中的密钥签名构建 → 改名为 `f2ft-<版本>-<架构>.apk` 并校验签名 → 创建标签 `v<版本>` 和 Release 并上传。
+- 发布密钥的本地备份在 `~/.f2ft-release/`（不在仓库内）。不要提交密钥文件或密码。
+- 本机网络无法下载 lint 依赖时，本地验证 release 构建可以加 `-x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease`；CI 中保留 lint 检查。
 
 ### 真机验证
 
 - 目前没有单元测试，改动通过"构建 → 安装到真机 → 操作受影响的流程 → 截图"来验证，测试报告要求见 `docs/development-process.md`。
-- `adb devices` 列表为空时，`adb kill-server && adb start-server` 通常可以恢复。`installDebug` 报 "No connected devices" 时，可以改用 `adb -s <设备号> install -r app/build/outputs/apk/debug/app-debug.apk`。
+- `adb devices` 列表为空时，`adb kill-server && adb start-server` 通常可以恢复。`installDebug` 报 "No connected devices" 时，可以改用 `adb -s <设备号> install -r app/build/outputs/apk/debug/app-arm64-v8a-debug.apk`。
 - 测试设备（华为 ALN-AL80）没有 `screenrecord`，也没有 Google 服务和可用的系统语音识别。需要连续画面时，在手机上循环执行 `screencap`。
 - 需要语音输入时，可以用电脑扬声器朗读测试句（中文 `say -v Tingting`，英文 `say -v Samantha`）。测试环境里的其他声音也会被识别，记录结果时要区分。
 - 无法在真机上验证的内容，要明确说明，不能当作已通过。

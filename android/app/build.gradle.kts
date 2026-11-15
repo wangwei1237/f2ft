@@ -3,6 +3,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Release builds pass -PappVersion=X.Y.Z; local builds keep the defaults.
+val appVersion: String? = providers.gradleProperty("appVersion").orNull
+val appVersionCode: Int = appVersion?.let { v ->
+    val parts = v.split(".").map { it.toIntOrNull() }
+    require(parts.size == 3 && parts.all { it != null && it >= 0 } && parts[1]!! <= 99 && parts[2]!! <= 99) {
+        "appVersion must be X.Y.Z with Y and Z between 0 and 99, got '$v'"
+    }
+    parts[0]!! * 10000 + parts[1]!! * 100 + parts[2]!!
+} ?: 1
+
+// Release signing comes from environment variables set by CI; without them the release build is unsigned.
+val releaseKeystore: String? = providers.environmentVariable("RELEASE_KEYSTORE_FILE").orNull
+
 android {
     namespace = "com.fy.facetranslate"
     compileSdk = 36
@@ -11,13 +24,35 @@ android {
         applicationId = "com.fy.facetranslate"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersion ?: "1.0"
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = providers.environmentVariable("RELEASE_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").get()
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    // One APK per CPU architecture plus a universal APK containing all of them.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            isUniversalApk = true
         }
     }
 

@@ -41,6 +41,20 @@
 
 App 为中译英、英译中各保持一条翻译播报连接；开启实时字幕时，两侧各再保持一条字幕连接。轮到哪一方说，麦克风音频就同时发给该侧的翻译播报连接和字幕连接，所以开启实时字幕后音频费用相应增加。
 
+## 下载安装
+
+到 [Releases](https://github.com/wangwei1237/f2ft/releases) 页面下载最新版本的 APK，按手机的 CPU 架构选择：
+
+| 文件 | 适用设备 |
+|---|---|
+| `f2ft-<版本>-arm64-v8a.apk` | 绝大多数近几年的 Android 手机（64 位 ARM），推荐 |
+| `f2ft-<版本>-armeabi-v7a.apk` | 较老的 32 位 ARM 手机 |
+| `f2ft-<版本>-x86_64.apk` | 64 位 x86 设备，如电脑上的 Android 模拟器 |
+| `f2ft-<版本>-x86.apk` | 32 位 x86 设备（少见） |
+| `f2ft-<版本>-universal.apk` | 包含所有架构，体积最大；不确定时选这个 |
+
+在手机上打开 APK 安装；如果系统提示，允许"安装未知来源应用"。要求 Android 8.0 及以上，需要联网。
+
 ## 配置 API Key
 
 API Key 不写在代码里，安装后在 App 内配置：
@@ -58,11 +72,23 @@ Key 使用 Android Keystore 的 AES-GCM 密钥加密后保存在 App 私有存�
 
 ```bash
 cd android
-./gradlew :app:assembleDebug    # 生成 app/build/outputs/apk/debug/app-debug.apk
-./gradlew :app:installDebug     # 安装到已通过 USB 调试连接的手机
+./gradlew :app:assembleDebug    # 在 app/build/outputs/apk/debug/ 下按架构生成 app-<架构>-debug.apk
+./gradlew :app:installDebug     # 安装到已通过 USB 调试连接的手机（自动选择匹配的架构）
 ```
 
 首次构建前，在 `android/local.properties` 中写入 SDK 路径，例如 `sdk.dir=/Users/you/Library/Android/sdk`。
+
+## 发布新版本
+
+发布由 GitHub Actions 工作流 [`Release APK`](.github/workflows/release.yml) 完成，只能手动触发：
+
+1. 打开仓库的 Actions 页面，选择 "Release APK"，点 "Run workflow"。
+2. 输入版本号，格式为 `X.Y.Z`（如 `0.0.2`），Y 和 Z 不超过 99。版本号必须比已发布的版本大，且不能重复。
+3. 工作流会编译、签名 5 个 APK，创建标签 `v<版本号>` 和对应的 Release，并上传 APK。
+
+App 的 `versionName` 就是输入的版本号，`versionCode` 按 `X × 10000 + Y × 100 + Z` 计算，所以新版本可以直接覆盖安装旧版本。
+
+**签名密钥**：APK 用固定的发布密钥签名，密钥保存在仓库 Secrets 中（`RELEASE_KEYSTORE_BASE64`、`RELEASE_KEYSTORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`），不在代码仓库里。密钥丢失后，新版本将无法覆盖安装旧版本，务必另外备份密钥文件和密码。
 
 ## 代码结构
 
