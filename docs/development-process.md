@@ -83,6 +83,7 @@
 **测试报告**
 
 - 存放位置：`requirements/YYYYMMDD-NN-简短名称/test-report.md`，截图放在同目录的 `screenshots/` 下，文件名带用例编号，例如 `screenshots/TC01-connection-success.png`。
+- 测试报告和截图只保存在本地，不提交到仓库：`.gitignore` 已忽略 `requirements/` 下所有按日期编号的目录。需求文档本身（`requirements/YYYYMMDD-NN-简短名称.md`）仍要提交。
 - 报告模板：
 
 ```markdown
@@ -125,5 +126,6 @@
 
 ## 变更记录
 
+- v3（2026-11-15）：测试报告和截图改为只保存在本地，不提交到仓库。
 - v2（2026-11-14）：新增第 4 节，要求开发完成后同步更新 `README.md` 和 `docs/architecture.md`。
 - v1（2026-11-13）：首次制定。
