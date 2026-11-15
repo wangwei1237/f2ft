@@ -17,6 +17,8 @@ import com.fy.facetranslate.audio.PcmPlayer
 import com.fy.facetranslate.data.AppSettings
 import com.fy.facetranslate.data.Language
 import com.fy.facetranslate.data.SettingsStore
+import com.fy.facetranslate.data.UpdateChecker
+import com.fy.facetranslate.data.UpdateResult
 import com.fy.facetranslate.live.GeminiLiveClient
 import com.fy.facetranslate.live.LiveConfig
 import okhttp3.OkHttpClient
@@ -45,6 +47,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
     private val clients = mutableMapOf<Language, GeminiLiveClient>()
+    private val updateChecker = UpdateChecker(http.newBuilder().callTimeout(10, TimeUnit.SECONDS).build())
     private val subtitles = mutableMapOf<Language, GeminiLiveClient>()
     private val player = PcmPlayer()
     private val mic = MicRecorder(::onMicChunk)
@@ -144,6 +147,13 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app), GeminiLiv
         })
         client.connect()
         main.postDelayed({ if (!done) { client.close(); finish("timeout") } }, 10_000)
+    }
+
+    // ---------------------------------------------------------------- update check
+
+    /** Asks GitHub for the latest release; [onResult] runs on the main thread. */
+    fun checkForUpdate(currentVersion: String, onResult: (UpdateResult) -> Unit) {
+        updateChecker.check(currentVersion) { result -> main.post { onResult(result) } }
     }
 
     // ---------------------------------------------------------------- voice preview

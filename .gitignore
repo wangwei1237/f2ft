@@ -41,9 +41,6 @@ google-services.json
 .devtools/*
 !.devtools/make_icons.py
 
-# test
-requirements/20261113-02-live-subtitles
-requirements/20261115-01-release-workflow
 # Test reports and screenshots of every dated requirement stay local (directories only; the .md docs are tracked)
 requirements/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9]-*/
 

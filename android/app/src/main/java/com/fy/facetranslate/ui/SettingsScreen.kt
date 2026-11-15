@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fy.facetranslate.data.AppSettings
+import com.fy.facetranslate.data.UpdateResult
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -44,6 +45,9 @@ fun SettingsScreen(
     onTest: (AppSettings, (List<Pair<String, String?>>) -> Unit) -> Unit,
     onPreview: (AppSettings, (playing: Boolean, error: String?) -> Unit) -> Unit,
     onStopPreview: () -> Unit,
+    appInfo: AppInfo,
+    onCheckUpdate: (String, (UpdateResult) -> Unit) -> Unit,
+    onOpenUrl: (String) -> Unit,
 ) {
     var apiKey by remember { mutableStateOf(initial.apiKey) }
     var showKey by remember { mutableStateOf(false) }
@@ -190,5 +194,6 @@ fun SettingsScreen(
             )
         }
         PrimaryButton("保存", { onSave(current()) }, Modifier.fillMaxWidth())
+        AboutSection(appInfo, onCheckUpdate, onOpenUrl)
     }
 }

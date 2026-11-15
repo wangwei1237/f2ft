@@ -22,7 +22,8 @@ android/app/src/main/java/com/fy/facetranslate/
 │   └── PcmPlayer.kt                24 kHz PCM 流式播放
 ├── data/
 │   ├── Language.kt                 中英两侧的语言代码和各自语言的界面文案
-│   └── SettingsStore.kt            设置读写，API Key 用 Android Keystore 加密
+│   ├── SettingsStore.kt            设置读写，API Key 用 Android Keystore 加密
+│   └── UpdateChecker.kt            查询 GitHub 最新正式版、比较版本号、选择匹配架构的 APK
 ├── live/
 │   └── GeminiLiveClient.kt         Live API 协议：setup 消息、音频/文字输入、服务端消息解析
 ├── session/
@@ -46,6 +47,13 @@ android/app/src/main/java/com/fy/facetranslate/
 - 所有界面状态变化都在主线程进行；WebSocket 和麦克风回调先切回主线程再修改状态。
 - 被取消的轮次返回的迟到结果，绝不能更新更新的轮次。ViewModel 会核对回调来自当前轮次的连接；轮次在中途被打断时，关闭并重建该方向的连接（翻译和字幕都一样）。修改轮次逻辑时必须保持这一点。
 - 播报和重播期间不收音；正常播报结束才交给对方，重播不改变轮次。
+
+### 版本信息与更新检测
+
+- 设置页"关于"一节（`ui/AboutSection.kt`）显示 `PackageManager` 中的 `versionName`、`versionCode` 和 `Build.SUPPORTED_ABIS` 的首选架构。
+- 「检查更新」只在用户点击时调用 `https://api.github.com/repos/wangwei1237/f2ft/releases/latest`（不需要登录，每个 IP 每小时 60 次；超时 10 秒）。`tag_name` 去掉 `v` 后按 `X.Y.Z` 逐段比较；当前版本不是 `X.Y.Z`（如本地构建的 `1.0`）时视为开发版本。
+- 下载地址从 Release 附件中按 `Build.SUPPORTED_ABIS` 顺序匹配 `f2ft-<版本>-<架构>.apk`，找不到时用 `universal`。下载和安装交给系统浏览器，App 不申请安装权限。
+- 这一功能依赖发布工作流的标签格式（`vX.Y.Z`）和 APK 命名（`f2ft-<版本>-<架构>.apk`），修改任一方时两边要一起改。
 
 ## 4. Gemini Live API 约束
 

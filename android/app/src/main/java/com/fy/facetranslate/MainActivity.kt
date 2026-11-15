@@ -1,12 +1,15 @@
 package com.fy.facetranslate
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -19,9 +22,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.core.content.pm.PackageInfoCompat
 import com.fy.facetranslate.data.Language
 import com.fy.facetranslate.session.ConversationViewModel
 import com.fy.facetranslate.session.Screen
+import com.fy.facetranslate.ui.AppInfo
 import com.fy.facetranslate.ui.AppTheme
 import com.fy.facetranslate.ui.HomeScreen
 import com.fy.facetranslate.ui.SessionActions
@@ -64,6 +69,7 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(
                             vm.settings, vm::saveSettings, vm::closeSettings, vm::testConnection,
                             vm::previewVoice, vm::stopPreview,
+                            appInfo(), vm::checkForUpdate, ::openUrl,
                         )
                     }
                     Screen.SESSION -> SessionScreen(ui, sessionActions())
@@ -131,6 +137,20 @@ class MainActivity : ComponentActivity() {
         } else {
             // Permanently denied: the system dialog will not show again, so open app settings.
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+        }
+    }
+
+    private fun appInfo(): AppInfo {
+        val pkg = packageManager.getPackageInfo(packageName, 0)
+        return AppInfo(pkg.versionName ?: "?", PackageInfoCompat.getLongVersionCode(pkg), Build.SUPPORTED_ABIS.first())
+    }
+
+    /** Opens a link (project page, release page, APK download) in the browser. */
+    private fun openUrl(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, "没有可以打开链接的浏览器", Toast.LENGTH_SHORT).show()
         }
     }
 
